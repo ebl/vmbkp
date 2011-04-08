@@ -359,6 +359,35 @@ public class VirtualMachineManager
         } catch (Exception e) { logger_.warning(Utility.toString(e)); return false; }
     }
 
+    
+    /**
+     * Delete snapshot of virtual machine
+     *
+     * @param snapName snapshot name to delete
+     * @return true in success, false in failure.
+     */
+    public boolean revertSnapshot(String snapName)
+    {
+        VirtualMachineSnapshot vmsnap = getSnapshotInTree(snapName);
+        if (vmsnap == null) { return false; }
+
+        try {
+            Task task = vmsnap.revertToSnapshot_Task(null, true);
+            String ret = task.waitForTask();
+            if (ret.equals("success")) {
+                logger_.info
+                    (String.format
+                     ("%s: snapshot was reverted successfully.\n", ret));
+                return true;
+            } else {
+                logger_.info
+                    (String.format
+                     ("%s: revertSnapshot task failed.\n", ret));
+                return false;
+            }
+        } catch (Exception e) { logger_.warning(Utility.toString(e)); return false; }
+    }
+
     /**
      * Get the name of all snapshots of a specified virtual machine.
      *

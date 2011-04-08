@@ -1472,6 +1472,26 @@ public class VmbkpMain
     }
 
     /**
+     * Discard snapshot with the specified name.
+     *
+     * @param vmm Virtual machine manager.
+     * @param snapName snapshot name.
+     */
+    public static void revertSnapshot(VirtualMachineManager vmm, String snapName)
+        throws Exception
+    {
+        VmdkBkp.lock(cfgGlobal_);
+        try {
+            if (! vmm.revertSnapshot(snapName)) {
+                String msg = String.format("Revert snapshot %s failed.", snapName);
+                throw new Exception(msg);
+            }
+        } finally {
+            VmdkBkp.unlock();
+        }
+    }
+
+    /**
      * Delete snapshot with the specified name.
      *
      * @param vmm Virtual machine manager.
