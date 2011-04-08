@@ -62,11 +62,13 @@ void Command::showHelp() const
         "  --dumpout <filename>:   output vmdk dump\n"
         "  --digestout <filename>: output vmdk digest\n"
         "  --bmpin <filename>:     changed block bitmap\n"
+        "  --bmpout <filename>:    changed block file\n"
         "  --rdiffout <filename>:  output vmdk rdiff\n\n"
         "Required input/output for each command:\n"
         "  dump --mode full: --dumpout and --digestout\n"
         "  dump --mode diff: all input/output options except --bmpin\n"
         "  dump --mode incr: all six input/output options\n"
+        "  dump --mode delta: --bmpin and --bmpout\n"
         "  restore: --digestin\n"
         "           Just specify input dump/rdiff files in line.\n"
         "           digestin will be required with --omitzeroblock only.\n"
@@ -110,7 +112,7 @@ void Command::showHelp() const
         "\n"
         "Options for dump command:\n"
         "  --mode <mode>:\n"
-        "      Specify dump mode. Choose full, diff, or incr.\n"
+        "      Specify dump mode. Choose full, diff, delta or incr.\n"
         "  --blocksize <size>:\n"
         "      Block size for read/write operations.\n"
         "      This is optional with  --mode full option.\n"
@@ -215,6 +217,7 @@ bool Command::parseCommandlineOptions(int argc, char * const argv[])
             {"digestout", 1, 0, '6'},
             {"bmpin", 1, 0, '7'},
             {"rdiffout", 1, 0, '8'},
+            {"bmpout", 1, 0, '9'},
             {"nread", 1, 0, 'a'},
             {"shared", 0, 0, 1},
             {"san", 0, 0, 2},
@@ -225,7 +228,7 @@ bool Command::parseCommandlineOptions(int argc, char * const argv[])
         };
 
         int c = getopt_long(argc, argv,
-                            "l:r:s:u:p:v:0:c:b:f:d:1:3:4:5:6:7:8:a:hzm",
+                            "l:r:s:u:p:v:0:c:b:f:d:1:3:4:5:6:7:8:9:a:hzm",
                             longOptions, &optionIndex);
         if (c == -1) {
             break;
@@ -293,6 +296,9 @@ bool Command::parseCommandlineOptions(int argc, char * const argv[])
             break;
         case '8': /* rdiffOut */
             cfg_.rdiffOutFileName = strdup(optarg);
+            break;
+        case '9': /* bmpOut */
+            cfg_.bmpOutFileName = strdup(optarg);
             break;
         case 'a': /* nread */
             cfg_.numReadBlockForTest = atol(optarg);
@@ -513,6 +519,11 @@ void Command::doDumpFork()
     WRITE_LOG1("doDump() called.\n");
     assert(cfg_.cmd == CMD_DUMP);
 
+    if (cfg_.mode == DUMPMODE_DELTA) {
+        doDeltaDump();
+        return;
+    }
+
     /* Initialize and open vmdk */
     WRITE_LOG1("********** Initialize **********\n");
     VddkController vddkCtrl(cfg_, true /* read only */, cfg_.isUseSan);
@@ -646,6 +657,152 @@ void Command::doDumpFork()
                 if (isChanged) { std::cout << "o"; }
                 else           { std::cout << "."; }
             } else             { std::cout << "_"; }
+        }
+        if (currDumpB.getOffset() % INTERVAL == INTERVAL - 1) {
+            bulkTimeEnd = getTime();
+            std::cout << " "
+                      << INTERVAL / (bulkTimeEnd - bulkTimeBegin)
+                      << "blks/s\n";
+            std::cout.flush();
+            bulkTimeBegin = bulkTimeEnd;
+        }
+
+    } /* for */
+        
+    /* Elapsed time */
+    double timeEnd = getTime();
+    ::printf("\nElapsed time to dump: %f sec\n", timeEnd - timeBegin);
+
+    WRITE_LOG1("********** doDump() end **********\n");
+}
+
+
+void Command::doDeltaDump()
+{
+    WRITE_LOG1("doDump() called.\n");
+    assert(cfg_.cmd == CMD_DUMP);
+    assert(cfg_.mode == DUMPMODE_DELTA);
+
+    /* Initialize and open vmdk */
+    WRITE_LOG1("********** Initialize **********\n");
+    VddkController vddkCtrl(cfg_, true /* read only */, cfg_.isUseSan);
+    vddkCtrl.start();
+    vddkCtrl.open();
+
+    WRITE_LOG1("Current transport mode: %s\n",
+              vddkCtrl.getTransportMode().c_str());
+
+    VmdkDumpHeader currDumpH;     /* for BmpOut */
+    VmdkDumpHeader prevDumpH;     /* not used */
+    VmdkDigestHeader prevDigestH; /* not used */
+    VmdkDigestHeader currDigestH; /* for digestOut */
+    VmdkDumpHeader rdiffH;        /* not used */
+
+    WRITE_LOG1("********** VMDK Info **********\n");
+    VmdkInfo vmdkInfo;
+    vddkCtrl.readVmdkInfo(vmdkInfo);
+
+    WRITE_LOG1("********** VMDK metadata **********\n");
+    vddkCtrl.readMetadata(currDumpH.getMetadata());
+
+    WRITE_LOG1("********** Initialize archive header files. **********\n");
+    ArchiveManagerForDump arcMgr(cfg_);
+
+    arcMgr.setHeaders(vmdkInfo, prevDumpH, prevDigestH,
+                       currDumpH, currDigestH, rdiffH);
+    arcMgr.writeBmpHeader(currDumpH);
+    
+    Bitmap changedBlockBitmap;
+    arcMgr.readChangedBlockBitmap(changedBlockBitmap);
+    
+    MY_CHECK_AND_THROW(
+       currDumpH.getDiskSize() == changedBlockBitmap.size(),
+       "doDump(): Bitmap size is not disk size.");
+    
+    /* Dump each block. */
+    VmdkDumpBlock prevDumpB(cfg_.blocksize), currDumpB(cfg_.blocksize);
+    VmdkDigestBlock prevDigestB, currDigestB;
+    
+    WRITE_LOG1("********** VMDK read **********\n");
+    
+    const size_t maxOft = (cfg_.numReadBlockForTest == 0
+                           ? vmdkInfo.nBlocks
+                           : cfg_.numReadBlockForTest);
+    
+    double timeBegin = getTime();
+
+    /* To calculate realtime throughput */
+    double bulkTimeBegin = timeBegin;
+    double bulkTimeEnd;
+
+    for (uint64 oft = 0; oft < maxOft; oft ++) {
+
+        if (isSignal_) {
+            std::string msg("Signal received.\n");
+            WRITE_LOG0(msg.c_str()); throw msg;
+        }
+        
+        /* Retry times when block read of vmdk is failed. */
+        int tryalTimes = 10;
+        
+        bool maybeChanged = changedBlockBitmap[oft];
+        
+        if (maybeChanged) {
+           /* Read a block from vmdk file */
+            while (tryalTimes > 0) {
+                try {
+                    vddkCtrl.readBlock(oft, currDumpB.getBuf());
+                    break;
+                } catch (const MyException& e) {
+                    /*
+                      Read block may fail when
+                      first write to the vmdk by the power-on VM
+                      after creating the snapshot during this dump.
+                      This is why SCSI reservation conflict occurs
+                      then all continuous accesses to the LUN
+                      in this session will fail.
+                    */
+                    WRITE_LOG0("%s\n", e.sprint().c_str());
+                    tryalTimes --;
+                    if (tryalTimes <= 0) {
+                        vddkCtrl.close(); vddkCtrl.stop(); throw;
+                    }
+                    if (tryalTimes <= 8) {
+                        vddkCtrl.close();
+                        WRITE_LOG0("Reset VDDK and retry read block %llu.\n",
+                                   static_cast<unsigned long long>(oft));
+                        arcMgr.pause();
+                        bool ret = vddkCtrl.reset(true /* read only */,
+                                                  cfg_.isUseSan);
+                        if (! ret) {
+                            WRITE_LOG0("Reset VDDK failed.\n");
+                            vddkCtrl.close(); vddkCtrl.stop(); throw;
+                        }
+                        arcMgr.resume();
+                        WRITE_LOG0("Reset VDDK done.\n");
+                        vddkCtrl.open();
+                    }
+                }
+            }
+            currDumpB.setIsAllZero();
+            currDumpB.setOffset(oft);
+        } else {
+            continue;
+        }
+        
+        arcMgr.writeToBmp(currDumpB);
+        
+        /* Show progress. */
+        const size_t INTERVAL = 64;
+        if (currDumpB.getOffset() % INTERVAL == 0) {
+            std::cout << currDumpB.getOffset() << " ";
+        }
+        {
+            if (maybeChanged) {
+                std::cout << ".";
+            } else { 
+                std::cout << "_"; 
+            }
         }
         if (currDumpB.getOffset() % INTERVAL == INTERVAL - 1) {
             bulkTimeEnd = getTime();

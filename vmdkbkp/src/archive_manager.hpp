@@ -40,13 +40,15 @@ private:
     boost::shared_ptr<DumpOutManager> dumpOutMgrP_;
     boost::shared_ptr<DigestOutManager> digestOutMgrP_;
     boost::shared_ptr<DumpOutManager> rdiffOutMgrP_;
+    boost::shared_ptr<DumpOutManager> bmpOutMgrP_;
 
-    /* Input of chagned block bitmap. */
+    /* Input of changed block bitmap. */
     std::ifstream changedBlockBitmapIn_;
 
     /* Open flag of each file. */
     bool isOpenDumpIn_;
     bool isOpenDumpOut_;
+    bool isOpenBmpOut_;
     bool isOpenDigestIn_;
     bool isOpenDigestOut_;
     bool isOpenRdiffOut_;
@@ -105,6 +107,12 @@ public:
      */
     void writeDumpHeader(const VmdkDumpHeader& dumpH);
     /**
+     * Write header information to bmp out dump stream.
+     *
+     * @exception Throws ExceptionStack.
+     */
+    void writeBmpHeader(const VmdkDumpHeader& dumpH);
+    /**
      * Write header information to output digest stream.
      *
      * @exception Throws ExceptionStack.
@@ -135,6 +143,13 @@ public:
      * @exception Throws ExceptionStack.
      */
     void writeToDump(const VmdkDumpBlock& dumpB);
+    /**
+     * Write block to the output bmp dump stream.
+     *
+     * @param dumpB Block data to write.
+     * @exception Throws ExceptionStack.
+     */
+    void writeToBmp(const VmdkDumpBlock& dumpB);
     /**
      * Write digest to the output digest stream.
      *

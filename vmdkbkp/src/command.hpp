@@ -77,6 +77,7 @@ public:
      */
     void doDumpNoFork();/* obsolute */
     void doDumpFork(); 
+    void doDeltaDump();
     /**
      * Do dump test read vmdk only.
      */

@@ -16,6 +16,7 @@
 ArchiveManager::ArchiveManager(const ConfigData& cfg)
     : isOpenDumpIn_(false)
     , isOpenDumpOut_(false)
+    , isOpenBmpOut_(false)
     , isOpenDigestIn_(false)
     , isOpenDigestOut_(false)
     , isOpenRdiffOut_(false)
@@ -33,6 +34,8 @@ ArchiveManager::ArchiveManager(const ConfigData& cfg)
         (new ParallelDigestOutManager);
     rdiffOutMgrP_ = boost::shared_ptr<ParallelDumpOutManager>
         (new ParallelDumpOutManager);
+    bmpOutMgrP_ = boost::shared_ptr<ParallelDumpOutManager>
+        (new ParallelDumpOutManager);
 #else
     dumpInMgrP_ = boost::shared_ptr<SingleDumpInManager>
         (new SingleDumpInManager);
@@ -43,6 +46,8 @@ ArchiveManager::ArchiveManager(const ConfigData& cfg)
     digestOutMgrP_ = boost::shared_ptr<SingleDigestOutManager>
         (new SingleDigestOutManager);
     rdiffOutMgrP_ = boost::shared_ptr<SingleDumpOutManager>
+        (new SingleDumpOutManager);
+    bmpOutMgrP_ = boost::shared_ptr<SingleDumpOutManager>
         (new SingleDumpOutManager);
 #endif
     
@@ -72,7 +77,10 @@ ArchiveManager::ArchiveManager(const ConfigData& cfg)
     if (! cfg.bmpInFileName.empty()) {
         changedBlockBitmapIn_.open(cfg.bmpInFileName.c_str());
     }
-
+    if (! cfg.bmpOutFileName.empty()) {
+        isOpenBmpOut_ = true;
+        bmpOutMgrP_->init(cfg.bmpOutFileName);
+    }
     /* Check required streams are available
        for the specified command and mode. */
     checkStreams();
@@ -88,6 +96,7 @@ ArchiveManager::~ArchiveManager()
 
     /* Normally output threads must flush data in their queue. */
     if (isOpenDumpOut_) { dumpOutMgrP_->stop(); }
+    if (isOpenBmpOut_) { bmpOutMgrP_->stop(); }
     if (isOpenDigestOut_) { digestOutMgrP_->stop(); }
     if (isOpenRdiffOut_) { rdiffOutMgrP_->stop(); }
 
@@ -99,7 +108,8 @@ ArchiveManager::~ArchiveManager()
 void ArchiveManager::checkStreams()
 {
     const bool isChangedBlockBitmapIn = changedBlockBitmapIn_.is_open();
-
+    
+    const bool canDumpDelta = isChangedBlockBitmapIn && isOpenBmpOut_ ;
     const bool canDumpFull = isOpenDumpOut_ && isOpenDigestOut_;
     const bool canDumpDiff =
         isOpenDumpIn_ && isOpenDigestIn_ &&
@@ -130,6 +140,10 @@ void ArchiveManager::checkStreams()
         case DUMPMODE_INCR:
             MY_CHECK_AND_THROW(canDumpIncr,
                                "Streams are not open for dump incr.");
+            break;
+        case DUMPMODE_DELTA:
+            MY_CHECK_AND_THROW(canDumpDelta,
+                               "Streams are not open for dump delta.");
             break;
         case DUMPMODE_UNKNOWN:
         default:
@@ -198,6 +212,19 @@ void ArchiveManager::writeToDump(const VmdkDumpBlock& dumpB)
         
     } catch (ExceptionStack& e) {
         e.add("writeToDump()", __FILE__, __LINE__); throw;
+    }
+}
+
+void ArchiveManager::writeToBmp(const VmdkDumpBlock& dumpB)
+{
+    assert(isOpenBmpOut_);
+    try {
+        DumpBP dumpBP = DumpBP(new VmdkDumpBlock(dumpB.blockSize_));
+        dumpBP->copyDataFrom(dumpB);
+        bmpOutMgrP_->putB(dumpBP);
+        
+    } catch (ExceptionStack& e) {
+        e.add("writeToBmp()", __FILE__, __LINE__); throw;
     }
 }
 
@@ -272,6 +299,20 @@ void ArchiveManager::writeDumpHeader(const VmdkDumpHeader& dumpH)
         
     } catch (ExceptionStack& e) {
         e.add("writeDumpHeader()", __FILE__, __LINE__); throw;
+    }
+}
+
+void ArchiveManager::writeBmpHeader(const VmdkDumpHeader& dumpH)
+{
+    assert(isOpenBmpOut_);
+    try {
+        DumpHP dumpHP = DumpHP(new VmdkDumpHeader);
+        dumpHP->copyDataFrom(dumpH);
+        bmpOutMgrP_->putH(dumpHP);
+        bmpOutMgrP_->start(); /* start writer worker. */
+        
+    } catch (ExceptionStack& e) {
+        e.add("writeBmpHeader()", __FILE__, __LINE__); throw;
     }
 }
 
@@ -466,7 +507,7 @@ void ArchiveManagerForDump::readChangedBlockBitmap(Bitmap& bmp)
     WRITE_LOG1("readChangedBlockBitmap() called.\n");
     assert(cfg_.cmd == CMD_DUMP);
     
-    if (cfg_.mode == DUMPMODE_INCR) {
+    if (cfg_.mode == DUMPMODE_INCR || cfg_.mode == DUMPMODE_DELTA) {
 
         try {
             ArchiveManager::readChangedBlockBitmap(bmp);

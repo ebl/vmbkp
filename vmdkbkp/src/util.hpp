@@ -60,6 +60,7 @@ enum DumpMode {
     DUMPMODE_FULL,
     DUMPMODE_DIFF,
     DUMPMODE_INCR,
+    DUMPMODE_DELTA,
     DUMPMODE_UNKNOWN
 };
 
@@ -119,6 +120,7 @@ struct ConfigData {
     std::string dumpOutFileName;
     std::string digestOutFileName;
     std::string bmpInFileName;
+    std::string bmpOutFileName;
     std::string rdiffOutFileName;
 
     /* Filenames of dump/rdiff for merge command. */
@@ -211,6 +213,8 @@ struct ConfigData {
             mode = DUMPMODE_DIFF;
         } else if (modeStr == "incr") {
             mode = DUMPMODE_INCR;
+        } else if (modeStr == "delta") {
+            mode = DUMPMODE_DELTA;
         } else {
             mode = DUMPMODE_UNKNOWN;
         }
