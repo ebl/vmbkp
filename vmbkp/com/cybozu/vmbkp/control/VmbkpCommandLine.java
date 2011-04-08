@@ -219,7 +219,7 @@ public class VmbkpCommandLine
              "  --dryrun:       do not backup really.\n" +
              "  --gzip:         use gzip to output compression.\n" +
              "  --nbd:          use NBD transfer instead of SAN.\n" +
-             "  --mode <mode>:  specify wanted backup level (incr, diff, full).\n" +
+             "  --mode <mode>:  specify wanted backup level (incr, diff, delta, full).\n" +
              "\n" +
              "Options for restore command:\n" +
              "  --name <name>:      new name of virtual machine (required).\n" +

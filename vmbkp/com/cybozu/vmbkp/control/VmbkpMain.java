@@ -960,11 +960,12 @@ public class VmbkpMain
         /* Check available backup mode. */
         boolean isDiff = vmArcMgr.canExecDiffBackup(vmdkInfo.uuid_);
         boolean isInc =  vmArcMgr.canExecIncrBackup(vmdkInfo.uuid_);
+        boolean isDelta = vmArcMgr.canExecDeltaBackup(vmdkInfo.uuid_);
 
         profGen.setIsChanged(diskId, true);
 
         /* Get changed block info and save if required. */
-        if (isInc) {
+        if (isInc || isDelta) {
             /* profGen.setIsChange(diskId, false)
                may be called inside it. */
             hasChangedBlocks = getAndSaveChangedBlocksOfDisk
@@ -973,7 +974,7 @@ public class VmbkpMain
 
         /* If ctkEnabled not available, turn off incr and delta mode */
         if (!hasChangedBlocks) {
-            isInc = false;
+            isInc = isDelta = false;
         }
 
         /* Dump archives with vmdkbkp tool. */
@@ -985,7 +986,8 @@ public class VmbkpMain
 
         } else {   /* --mode was specified in command line */
             if ((isInc   && info.mode == BackupMode.INCR)  ||
-                (isDiff  && info.mode == BackupMode.DIFF)) { 
+                (isDiff  && info.mode == BackupMode.DIFF)  || 
+                (isDelta && info.mode == BackupMode.DELTA)) {
                 mode = info.mode;
             } else {
                 mode = BackupMode.FULL;
@@ -995,6 +997,7 @@ public class VmbkpMain
 
         logger_.info("isInc: " + isInc +
                      " isDiff: " + isDiff + 
+                     " isDelta: " + isDelta +
                      " mode: " + mode.toString()); /* debug */
 
         profGen.setDumpBeginTimestamp(diskId);
@@ -1004,6 +1007,12 @@ public class VmbkpMain
             logger_.info("The vmdk is not changed at all.");
             vmArcMgr.registerLazyTaskMovePrevDumpAndDigest(diskId);
             ret = true;
+
+        } else if (mode == BackupMode.DELTA &&
+            profGen.isChanged(diskId) == false) {
+            logger_.info("The vmdk is not changed at all.");
+            ret = true;
+
         } else {
             /* Soap connection is not required during running vmdkbkp.
                It may take a long time and soap timeout will occur,
@@ -1488,26 +1497,6 @@ public class VmbkpMain
     }
 
     /**
-     * Discard snapshot with the specified name.
-     *
-     * @param vmm Virtual machine manager.
-     * @param snapName snapshot name.
-     */
-    public static void revertSnapshot(VirtualMachineManager vmm, String snapName)
-        throws Exception
-    {
-        VmdkBkp.lock(cfgGlobal_);
-        try {
-            if (! vmm.revertSnapshot(snapName)) {
-                String msg = String.format("Revert snapshot %s failed.", snapName);
-                throw new Exception(msg);
-            }
-        } finally {
-            VmdkBkp.unlock();
-        }
-    }
-
-    /**
      * Delete snapshot with the specified name.
      *
      * @param vmm Virtual machine manager.
@@ -1520,6 +1509,26 @@ public class VmbkpMain
         try {
             if (! vmm.deleteSnapshot(snapName)) {
                 String msg = String.format("Delete snapshot %s failed.", snapName);
+                throw new Exception(msg);
+            }
+        } finally {
+            VmdkBkp.unlock();
+        }
+    }
+
+    /**
+     * Discard snapshot with the specified name.
+     *
+     * @param vmm Virtual machine manager.
+     * @param snapName snapshot name.
+     */
+    public static void revertSnapshot(VirtualMachineManager vmm, String snapName)
+        throws Exception
+    {
+        VmdkBkp.lock(cfgGlobal_);
+        try {
+            if (! vmm.revertSnapshot(snapName)) {
+                String msg = String.format("Revert snapshot %s failed.", snapName);
                 throw new Exception(msg);
             }
         } finally {

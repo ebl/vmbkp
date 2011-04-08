@@ -774,6 +774,59 @@ public class VmArchiveManager
         return true;
     }
 
+    // TODO: Factorize code
+    /**
+     * Check if incremental backup can be executed.
+     */
+    public boolean canExecDeltaBackup(String uuid)
+    {
+        /* Get current diskId */
+        int diskId = currGen_.getDiskIdWithUuid(uuid);
+        logger_.info("diskId: " + diskId); /* debug */
+        if (diskId < 0) { return false; };
+
+        /* Check the previous dump succeeded */
+        ProfileGeneration prevGen = this.getPrevGeneration();
+        if (prevGen == null) {
+            logger_.warning("prevGen is null.");
+            return false;
+        }
+        int prevDiskId = prevGen.getDiskIdWithUuid(uuid);
+        if (prevDiskId < 0) {
+            logger_.warning("prevDiskId < 0");
+            return false;
+        }
+        if (prevGen.isVmdkdumpSucceeded(prevDiskId) == false) {
+            logger_.warning("vmdkbkp did not succeed.");
+            return false;
+        }
+        
+        /* Capacity check. */
+        long capacity = currGen_.getCapacity(diskId);
+        long prevCapacity = prevGen.getCapacity(prevDiskId);
+        if (capacity < 0 || capacity != prevCapacity) {
+            logger_.info("capacity is invalid or different.");
+            return false;
+        }
+              
+        /* Check that changed block information of both
+           previous and current generation is available */
+        String currChangeId = currGen_.getChangeId(diskId);
+        if (currChangeId == null || currChangeId.equals("*")) {
+            logger_.info("currChangeId is null or \"*\"");
+            return false;
+        }
+        String prevChangeId = prevGen.getChangeId(prevDiskId);
+        logger_.info("prevChangeId: " + prevChangeId);
+        if (prevChangeId == null || prevChangeId.equals("*")) {
+            logger_.info("prevChangeId is null or \"*\"");
+            return false;
+        }
+
+        /* ChangeId of both generations exists. */
+        return true;
+    }
+
     /**
      * Get a list of full dump file and rdiff files to restore
      * vmdk specified with diskId.

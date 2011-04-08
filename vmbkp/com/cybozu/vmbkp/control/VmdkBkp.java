@@ -413,8 +413,18 @@ public class VmdkBkp
             prevDumpPath = vmArcMgr.getPrevDumpPath(diskId);
             cmds.add(prevDumpPath);
         }
-        cmds.add("--dumpout"); /* dumpOut */
-        cmds.add(profGen.getDumpOutFileName(diskId));
+        if (mode == BackupMode.DELTA) {
+           cmds.add("--bmpout");
+           cmds.add(profGen.getBmpOutFileName(diskId));
+
+        } else {
+           cmds.add("--digestout"); /* digestOut */
+           cmds.add(profGen.getDigestOutFileName(diskId));
+
+           cmds.add("--dumpout"); /* dumpOut */
+           cmds.add(profGen.getDumpOutFileName(diskId));
+        }
+
 
         String prevDigestPath = null;
         if (mode == BackupMode.DIFF || mode == BackupMode.INCR) {
@@ -422,10 +432,8 @@ public class VmdkBkp
             prevDigestPath = vmArcMgr.getPrevDigestPath(diskId);
             cmds.add(prevDigestPath);
         }
-        cmds.add("--digestout"); /* digestOut */
-        cmds.add(profGen.getDigestOutFileName(diskId));
         
-        if (mode == BackupMode.INCR) {
+        if (mode == BackupMode.INCR || mode == BackupMode.DELTA) {
             cmds.add("--bmpin"); /* bmpIn */
             cmds.add(profGen.getBmpInFileName(diskId));
         }

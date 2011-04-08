@@ -224,6 +224,7 @@ public class ProfileGeneration
         cfg_.put(diskGroup, "disk_mode", vmdkInfo.diskMode_);
         cfg_.put(diskGroup, "rdiff_timestamp_ms", "-1");
         cfg_.put(diskGroup, "filename_dump", iStr + ".dump" + gzipExt);
+        cfg_.put(diskGroup, "filename_bdiff", iStr + ".bdiff" + gzipExt);
         cfg_.put(diskGroup, "filename_digest", iStr + ".digest" + gzipExt);
         cfg_.put(diskGroup, "filename_rdiff", iStr + ".rdiff" + gzipExt);
         cfg_.put(diskGroup, "filename_bmp", iStr + ".bmp");
@@ -363,6 +364,22 @@ public class ProfileGeneration
     public void setDumpOutFileName(int diskId, String filename)
     {
         cfg_.put(generateDiskGroup(diskId), "filename_dump", filename);
+    }
+
+    /**
+     * Get filename of [generation] filename_bdiff.
+     */
+    public String getBmpOutFileName(int diskId)
+    {
+        return this.getDiskGroupValAsAutoString(diskId, "filename_bdiff");
+    }
+
+    /**
+     * Set filename of [generation] filename_bdiff.
+     */
+    public void setBmpOutFileName(int diskId, String filename)
+    {
+        cfg_.put(generateDiskGroup(diskId), "filename_bdiff", filename);
     }
 
     /**
