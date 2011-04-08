@@ -1298,9 +1298,9 @@ public class VmbkpMain
                 logger_.warning("Connect failed or not found vm.");
                 throw e;
             }
-            /* Delete the snapshot. */
+            /* Revert the snapshot. */
             assert snapName != null;
-            deleteSnapshot(vmm, snapName);
+            revertSnapshot(vmm, snapName);
             msg = String.format("Delete snapshot %s succeeded.", snapName);
             System.out.println(msg); logger_.info(msg);
         }
